@@ -37,12 +37,12 @@ with open('output.tsv', 'w') as fp:
 
                     data['chords_newlines'] = [g[0]
                                        for g in
-                                       groupby(['BR' if tag.name == 'br' else tag.contents[0]
+                                       groupby(['BR' if tag.name == 'br' else (tag.contents[0] if len(tag.contents) > 0 else '')
                                                 for tag in soup.find_all([site['chord_tag'], 'br'])])]
                     data['chords_only'] = [tag.contents[0] for tag in soup.find_all([site['chord_tag']])]
                     data['chords_newlines_structure'] = [g[0]
                                        for g in
-                                       groupby(['BR' if tag.name == 'br' else tag.contents[0]
+                                       groupby(['BR' if tag.name == 'br' else (tag.contents[0] if len(tag.contents) > 0 else '')
                                                 for tag in soup.find_all([site['chord_tag'], 'br', site['structure_tag']])])]
 
                     output.writerow([data[header] for header in headers])
