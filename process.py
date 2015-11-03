@@ -42,6 +42,7 @@ with open('output.tsv', 'w') as fp:
                         if field != '\n' and field != '':
                             field = field.split(':', 1)
                             data[field[0].strip().lower()] = re.sub(r'\r?\n', '<br \>', field[1].strip())
+                            data[field[0].strip().lower()] = re.sub(r'\t', '<tab \>', data[field[0].strip().lower()])
 
                     soup = BeautifulSoup(data['tab'], 'html.parser')
 
