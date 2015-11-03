@@ -5,6 +5,16 @@ import re
 from bs4 import BeautifulSoup
 from itertools import groupby
 
+def convert(data):
+    if isinstance(data, basestring):
+        return str(data)
+    elif isinstance(data, collections.Mapping):
+        return dict(map(convert, data.iteritems()))
+    elif isinstance(data, collections.Iterable):
+        return type(data)(map(convert, data))
+    else:
+        return data
+
 headers = ['provider', 'filename', 'title', 'artist', 'contributor', 'type', 'key',
            'rating', 'difficulty', 'url', 'chords_only',
            'chords_newlines', 'chords_newlines_structure', 'tab']
@@ -21,7 +31,7 @@ with open('output.tsv', 'w') as fp:
             with open(site['folder'] + '/' + filename) as f:
 
                 try:
-                    content = f.read()[4:]
+                    content = convert(f.read()[4:])
 
                     array = content.split(" %%%%\n%%%% ")
                     data = collections.defaultdict(lambda: '')
