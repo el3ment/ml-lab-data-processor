@@ -5,15 +5,15 @@ import re
 from bs4 import BeautifulSoup
 from itertools import groupby
 
-def convert(data):
-    if isinstance(data, basestring):
-        return str(data)
-    elif isinstance(data, collections.Mapping):
-        return dict(map(convert, data.iteritems()))
-    elif isinstance(data, collections.Iterable):
-        return type(data)(map(convert, data))
-    else:
-        return data
+def fix_unicode(data):
+    if isinstance(data, unicode):
+        return data.encode('utf-8')
+    elif isinstance(data, dict):
+        data = dict((fix_unicode(k), fix_unicode(data[k])) for k in data)
+    elif isinstance(data, list):
+        for i in xrange(0, len(data)):
+            data[i] = fix_unicode(data[i])
+    return data
 
 headers = ['provider', 'filename', 'title', 'artist', 'contributor', 'type', 'key',
            'rating', 'difficulty', 'url', 'chords_only',
@@ -31,7 +31,7 @@ with open('output.tsv', 'w') as fp:
             with open(site['folder'] + '/' + filename) as f:
 
                 try:
-                    content = convert(f.read()[4:])
+                    content = fix_unicode(f.read()[4:])
 
                     array = content.split(" %%%%\n%%%% ")
                     data = collections.defaultdict(lambda: '')
@@ -46,17 +46,17 @@ with open('output.tsv', 'w') as fp:
 
                     soup = BeautifulSoup(data['tab'], 'html.parser')
 
-                    data['chords_newlines'] = [g[0]
+                    data['chords_newlines'] = [g[0] if g[0] != 'BR' else g[0] + str(len(g))
                                        for g in
                                        groupby(['BR' if tag.name == 'br' else (tag.contents[0] if len(tag.contents) > 0 else '')
                                                 for tag in soup.find_all([site['chord_tag'], 'br'])])]
                     data['chords_only'] = [tag.contents[0] for tag in soup.find_all([site['chord_tag']])]
-                    data['chords_newlines_structure'] = [g[0]
+                    data['chords_newlines_structure'] = [g[0] if g[0] != 'BR' else g[0] + str(len(g))
                                        for g in
                                        groupby(['BR' if tag.name == 'br' else (tag.contents[0] if len(tag.contents) > 0 else '')
                                                 for tag in soup.find_all([site['chord_tag'], 'br', site['structure_tag']])])]
 
-                    output.writerow([data[header] for header in headers])
+                    output.writerow([fix_unicode(data[header]) for header in headers])
 
                 except:
                     print('Error parsing file:', filename)
