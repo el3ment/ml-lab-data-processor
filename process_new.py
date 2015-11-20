@@ -4,6 +4,10 @@ import csv
 from bs4 import BeautifulSoup, Comment
 import re
 import sys
+from mingus.core import chords as mingus_chords
+import json
+import music21
+import pickle
 
 csv.field_size_limit(sys.maxsize)
 
@@ -15,51 +19,13 @@ def find_nth(s, x, n):
             break
     return i
 
-
-# with open('./output/lyricsnet.csv', 'rb') as csvfile:
-#     allLyrics = csv.DictReader(csvfile)
-#     for lyric in allLyrics:
-#         soup = BeautifulSoup(lyric['lyrics'], 'html.parser')
-#         blocks = soup.find('pre').contents[0].split('\r\n\r\n')
-#         for i, block in enumerate(blocks):
-#             lyrics = block.split('\r\n')
-#             for j, lyric in enumerate(lyrics):
-#                 # i = block id
-#                 # j = line id inside the block
-#                 print i, j, lyric
-
-# with open('./output/metrolyrics.csv', 'rb') as csvfile:
-#     allLyrics = csv.DictReader(csvfile)
-#     for lyric in allLyrics:
-#         soup = BeautifulSoup(lyric['lyrics'].replace('<br>', '\r\n'), 'html.parser')
-#         blocks = soup.findAll('p')
-#         for i, block in enumerate(blocks):
-#             if len(block.contents) > 0:
-#                 lyrics = block.contents[0].split('\r\n')
-#                 for j, lyric in enumerate(lyrics):
-#                     print i, j, lyric.strip()
-
-
-# with open('./output/songlyrics.csv', 'rb') as csvfile:
-#     allLyrics = csv.DictReader(csvfile)
-#     for data in allLyrics:
-#         soup = BeautifulSoup(re.sub('\r?\n', '', data['lyrics']).replace('<br>', '\r\n'), 'html.parser')
-#         [s.replaceWithChildren() if s else None for s in soup(['script', 'img', 'p'])]
-#
-#         blocks = (unicode('').join(unicode(content) for content in soup.contents)).split('\r\n\r\n')
-#
-#         for i, block in enumerate(blocks):
-#             lyrics = block.strip().split('\r\n')
-#             for j, lyric in enumerate(lyrics):
-#                 print i, j, lyric.strip()
-
-class Block:
-    def __init__(self):
-        self.metaData = {
+def Block():
+    return {
+        'metaData': {
             'lostCharacters': 0,
-            'role': None
-        }
-        self.lines = []
+            'role': None},
+        'lines': []
+    }
 
 def parseTab(tab):
 
@@ -82,6 +48,7 @@ def parseTab(tab):
     for i, block in enumerate(blocks):
 
         lines = block.split('<br/>')
+
 
         chordBlock = Block()
         lyricsBlock = Block()
@@ -113,18 +80,25 @@ def parseTab(tab):
                      'instl', 'riff', 'key', 'instrumental', 'ending', 'instrumentalbreak',
                      'chords', 'chorusx', 'lead', 'interlude', 'notes', 'note']
 
-            # Replace "one" with 1, "two" with 2 for roleTest
+            # Replace "one" with 1, "two" with 2
+            roleTest = lyric
+            #[roleTest.replace(word, i) for i, word in enumerate(["zero", "one", "two", "three", "four", "five"])]
 
-            roleTest = re.sub(r'([^\w]|[0-9])', '', lyric.lower(), flags=re.U).strip()
+            # Strip out anything that's not an alphabetic character in preparation
+            # for testing the line for roles
+            roleTest = re.sub(r'([^A-Za-z])', '', roleTest.lower(), flags=re.U).strip()
+
+            # Loop through the roles and if the entire trimmed lyric is equal to a role
+            # consider it a role
             for role in roles:
                 if role == roleTest:
                     # Terminate the block we've been building early
                     # If a block ends with chords but no lyrics or lyrics but no chords
-                    lyricsBlock.lines.append((None)) if len(chordBlock.lines) > len(lyricsBlock.lines) else None
-                    chordBlock.lines.append((None)) if len(lyricsBlock.lines) > len(chordBlock.lines) else None
+                    lyricsBlock['lines'].append((None)) if len(chordBlock['lines']) > len(lyricsBlock['lines']) else None
+                    chordBlock['lines'].append((None)) if len(lyricsBlock['lines']) > len(chordBlock['lines']) else None
 
                     # If there is something to be added
-                    if (len(lyricsBlock.lines) + len(chordBlock.lines)) > 0:
+                    if (len(lyricsBlock['lines']) + len(chordBlock['lines'])) > 0:
                         lyrics.append(lyricsBlock)
                         chords.append(chordBlock)
 
@@ -134,19 +108,19 @@ def parseTab(tab):
 
                     # Set the metadata of the new block and
                     # clear the lyric
-                    chordBlock.metaData['role'] = role
+                    chordBlock['metaData']['role'] = role
                     lyric = ''
 
             # If a chord was detected, add it
-            chordBlock.lines.append(chordLine) if len(chordLine) > 0 else None
+            chordBlock['lines'].append(chordLine) if len(chordLine) > 0 else None
 
             # If a lyric is not the first line of a block and has some alphabetic characters
             # we are able to make this latter assumption because
             # chords always follow lyrics, this may unduly delete
             # some lines of lyrics, but never lyric/chord pairs
             # len(re.sub(r'[^\w]', '', lyric, flags=re.U).strip()) >= 5 and
-            if len(chordBlock.lines) > 0 and len(re.sub(r'[^\w]|[0-9]', '', lyric, flags=re.U).strip()) > 0:
-                lyricsBlock.lines.append(lyric.rstrip())
+            if len(chordBlock['lines']) > 0 and len(re.sub(r'[^\w]|[0-9]', '', lyric, flags=re.U).strip()) > 0:
+                lyricsBlock['lines'].append(lyric.rstrip())
 
                 # If a chord and a lyric were on the same line
                 # mark it as embedded, we'll delete them later unless most
@@ -155,45 +129,45 @@ def parseTab(tab):
                     # The embeded line indexes
                     # after being added to the data structure
                     # i != index because some blocks never get added
-                    embeddedLines.append((len(lyrics), len(lyricsBlock.lines) - 1))
+                    embeddedLines.append((len(lyrics), len(lyricsBlock['lines']) - 1))
             else:
                 # Add any missing "deleted" to the lostCharacters metaData field
-                lyricsBlock.metaData['lostCharacters'] += len(lyric.strip())
+                lyricsBlock['metaData']['lostCharacters'] += len(lyric.strip())
 
             # if we have added a line of lyrics without a chord, we
             # must have a missing chord. This is because we assume
             # a line of chords ALWAYS comes before the paired line of lyrics
-            if len(chordBlock.lines) < len(lyricsBlock.lines):
-                chordBlock.lines.append(None)
+            if len(chordBlock['lines']) < len(lyricsBlock['lines']):
+                chordBlock['lines'].append(None)
 
             # If there was a line of chords in the middle of a block
             # with no following lyrics
-            lyricsBlock.lines.append(None) if len(chordBlock.lines)-1 > len(lyricsBlock.lines) else None
+            lyricsBlock['lines'].append(None) if len(chordBlock['lines'])-1 > len(lyricsBlock['lines']) else None
 
         # Terminate the block we've been building
         # If a block ends with chords but no lyrics or lyrics but no chords
-        lyricsBlock.lines.append(None) if len(chordBlock.lines) > len(lyricsBlock.lines) else None
-        chordBlock.lines.append(None) if len(lyricsBlock.lines) > len(chordBlock.lines) else None
+        lyricsBlock['lines'].append(None) if len(chordBlock['lines']) > len(lyricsBlock['lines']) else None
+        chordBlock['lines'].append(None) if len(lyricsBlock['lines']) > len(chordBlock['lines']) else None
 
         # If there is something to add
-        if len(lyricsBlock.lines) > 0 and len(chordBlock.lines) > 0:
+        if len(lyricsBlock['lines']) > 0 or len(chordBlock['lines']) > 0:
             lyrics.append(lyricsBlock)
             chords.append(chordBlock)
 
     # If less than half of the tab's lines were embedded
     # Loop through and delete the "embedded" lines
     # which are almost certainly non-lyric information
-    if len(embeddedLines) <= sum(len(block.lines) for block in lyrics) * .5:
+    if len(embeddedLines) <= sum(len(block['lines']) for block in lyrics) * .5:
         for blockId, lineId in reversed(embeddedLines):
-            lyrics[blockId].metaData['lostCharacters'] += len(lyrics[blockId].lines[lineId])
+            lyrics[blockId]['metaData']['lostCharacters'] += len(lyrics[blockId]['lines'][lineId])
 
-            if len(chords[blockId].lines) > lineId + 1 and chords[blockId].lines[lineId + 1] == None:
-                del lyrics[blockId].lines[lineId]
-                del chords[blockId].lines[lineId + 1]
+            if len(chords[blockId]['lines']) > lineId + 1 and chords[blockId]['lines'][lineId + 1] == None:
+                del lyrics[blockId]['lines'][lineId]
+                del chords[blockId]['lines'][lineId + 1]
             else:
-                lyrics[blockId].lines[lineId] = None
+                lyrics[blockId]['lines'][lineId] = None
 
-    if sum(len(block.lines) for block in chords) != sum(len(block.lines) for block in lyrics):
+    if sum(len(block['lines']) for block in chords) != sum(len(block['lines']) for block in lyrics):
         raise Exception('Chord and lyric array lengths do not match on: ' + data['title'] + ' by ' + data['artist'])
 
     # if len(lyrics) > 0:
@@ -208,29 +182,170 @@ def parseTab(tab):
     #             print '\t', lyrics[i].lines[j]
     #             print
 
-    return {'chords': chords, 'lyrics': lyrics, 'data': data}
+    return chords, lyrics
 
+_chordErrors = set()
+def normalizeChords(chordBlocks):
+    allChords = []
+    allChordNotes = []
+    allStream = music21.stream.Stream()
+    for chordBlock in chordBlocks:
+        blockChords = []
+        blockChordNotes = []
+        blockStream = music21.stream.Stream()
+        for line in chordBlock.lines:
+            if line:
+                for index, chord in line:
+                    chords.append(chord)
+                    try:
+                        if chord in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+                            notes = [chord]
+                        else:
+                            notes = [note.replace('b', '-') for note in mingus_chords.from_shorthand(chord)]
+
+                        allChordNotes.append(notes)
+                        blockChordNotes.append(notes)
+                    except Exception as e:
+                        _chordErrors.add(str(e))
+
+        if len(blockChords) > 0:
+            [blockStream.insert(music21.chord.Chord([note.replace('b', '-') for note in notes])) for notes in blockChordNotes]
+            keys = [blockStream.analyze(type).tonicPitchNameWithCase for type in ['AardenEssen', 'Simple', 'BellmanBudge', 'KrumhanslSchmuckler', 'KrumhanslKessler', 'TemperleyKostkaPayne']]
+            key = max(set(keys), key=keys.count)
+            consensus = keys.count(key) / float(len(keys))
+            chordBlock['metaData']['key'] = key
+            chordBlock['metaData']['keyConsensus'] = consensus
+
+
+
+
+
+parsedLyrics = {}
+parsedTabs = {}
+
+print 'Processing Lyrics.net...',
+with open('./output/lyricsnet.csv', 'rb') as csvfile:
+    allLyrics = csv.DictReader(csvfile)
+    for data in allLyrics:
+        allBlocks = []
+        soup = BeautifulSoup(data['lyrics'], 'html.parser')
+        [s.replaceWithChildren() if s else None for s in soup(['script', 'img', 'p'])]
+        blocks = soup.find('pre').contents[0].split('\r\n\r\n')
+        for i, block in enumerate(blocks):
+            lyrics = block.split('\r\n')
+            lyricBlock = Block()
+            for j, lyric in enumerate(lyrics):
+                lyricBlock['lines'].append(lyric.strip())
+            allBlocks.append(lyricBlock)
+
+        parsedLyrics[data['url']] = {
+            'url': data['url'],
+            'artist': data['artist'],
+            'title': data['title'],
+            'provider': data['provider'],
+            'lyrics': allBlocks
+        }
+print 'Finished.'
+
+print 'Processing Metro Lyrics...',
+with open('./output/metrolyrics.csv', 'rb') as csvfile:
+    allLyrics = csv.DictReader(csvfile)
+    for data in allLyrics:
+        allBlocks = []
+        soup = BeautifulSoup(data['lyrics'].replace('<br>', '\r\n'), 'html.parser')
+        blocks = soup.findAll('p')
+        for i, block in enumerate(blocks):
+            if len(block.contents) > 0:
+                lyrics = (unicode('').join(unicode(content) for content in block.contents)).split('\r\n')
+                lyricBlock = Block()
+                for j, lyric in enumerate(lyrics):
+                    lyricBlock['lines'].append(lyric.strip())
+            allBlocks.append(lyricBlock)
+
+        parsedLyrics[data['url']] = {
+            'url': data['url'],
+            'artist': data['artist'],
+            'title': data['title'],
+            'provider': data['provider'],
+            'lyrics': allBlocks
+        }
+print 'Finished.'
+
+print 'Processing Song Lyrics...',
+with open('./output/songlyrics.csv', 'rb') as csvfile:
+    allLyrics = csv.DictReader(csvfile)
+    for data in allLyrics:
+        allBlocks = []
+        soup = BeautifulSoup(re.sub('\r?\n', '', data['lyrics']).replace('<br>', '\r\n'), 'html.parser')
+        [s.replaceWithChildren() if s else None for s in soup(['script', 'img', 'p'])]
+
+        blocks = (unicode('').join(unicode(content) for content in soup.contents)).split('\r\n\r\n')
+
+        for i, block in enumerate(blocks):
+            lyrics = block.strip().split('\r\n')
+            lyricBlock = Block()
+            for j, lyric in enumerate(lyrics):
+                lyricBlock['lines'].append(lyric.strip())
+            allBlocks.append(lyricBlock)
+
+        parsedLyrics[data['url']] = {
+            'url': data['url'],
+            'artist': data['artist'],
+            'title': data['title'],
+            'provider': data['provider'],
+            'lyrics': allBlocks
+        }
+print 'Finished.'
+
+print 'Total Lyrics:', len(parsedLyrics.keys())
+print 'Saving Lyrics...',
+with open('./processed/lyrics.json', 'wb') as outfile:
+    json.dump(parsedLyrics, outfile)
+
+with open('./processed/lyrics.pkl ', 'wb') as outfile:
+    pickle.dump(parsedLyrics, outfile)
+print 'Saved.\n\n'
+
+
+print 'Processing Echords...',
 with open('./output/echords.csv', 'rb') as csvfile:
      tabs = csv.DictReader(csvfile)
 
      for data in tabs:
-        if data['url'] != 'http://www.e-chords.com/chords/azra/balkan/keyboard':
+        # Pull out nonsense HTML tags
+        tab = data['raw_tab'].replace('\r\n', '<br/>')
+        tab = BeautifulSoup('<pre>' + tab + '</pre>', 'html.parser')
+        [s.extract() for s in tab.findAll(text=lambda text:isinstance(text, Comment))]
+        [s.extract() for s in tab.select('.hide_tab')]
+        [s.replaceWithChildren() if s else None for s in tab(['script', 'img', 'p', 'div', 'i', 'b', 'span'])]
+        tab = '<br/>' + (unicode('').join(unicode(content) for content in tab.contents))
 
-            # Pull out nonsense HTML tags
-            tab = data['raw_tab'].replace('\r\n', '<br/>')
-            tab = BeautifulSoup('<pre>' + tab + '</pre>', 'html.parser')
-            [s.extract() for s in tab.findAll(text=lambda text:isinstance(text, Comment))]
-            [s.extract() for s in tab.select('.hide_tab')]
-            [s.replaceWithChildren() if s else None for s in tab(['script', 'img', 'p', 'div', 'i', 'b', 'span'])]
-            tab = '<br/>' + (unicode('').join(unicode(content) for content in tab.contents))
+        chords, lyrics = parseTab(tab)
 
-            parsedTab = parseTab(tab)
+        parsedTabs[data['url']] = {
+            'url': data['url'],
+            'artist': data['artist'],
+            'title': data['title'],
+            'contributor': data['contributor'],
+            'provider': data['provider'],
+            'provider-specific': {
+                'key': data['key'],
+                'comments': data['comments'],
+                'youtube': data['youtube'],
+                'rating': data['rating'],
+                'difficulty': data['difficulty'],
+                'type': data['type'],
+            },
+            'chords': chords,
+            'lyrics': lyrics
+        }
 
+print 'Finished.'
 
+print 'Processing Ultimate Guitar...',
 with open('./output/ultimate-guitar.csv', 'rb') as csvfile:
-     tabs = csv.DictReader(csvfile)
-
-     for data in tabs:
+    tabs = csv.DictReader(csvfile)
+    for data in tabs:
         # Pull out nonsense HTML tags
         tab = data['raw_tab'].replace('\r\n', '<br/>').replace('\n', '<br/>')
         tab = BeautifulSoup("<pre>" + tab + "</pre>", 'html.parser')
@@ -240,5 +355,85 @@ with open('./output/ultimate-guitar.csv', 'rb') as csvfile:
         tab = '<br/>' + (unicode('').join(unicode(content) for content in tab))
 
         tab = tab.replace('<span>', '<u>').replace('</span>', '</u>')
+        chords, lyrics = parseTab(tab)
 
-        parsedTab = parseTab(tab)
+        parsedTabs[data['url']] = {
+            'url': data['url'],
+            'artist': data['artist'],
+            'title': data['title'],
+            'contributor': data['contributor'],
+            'provider': data['provider'],
+            'provider-specific': {
+                'rating': data['rating'],
+                'comments': data['comments'],
+                'type': data['type'],
+                'difficulty': data['difficulty'].strip()
+            },
+            'chords': chords,
+            'lyrics': lyrics
+        }
+print 'Finished.'
+
+print 'Total Tabs:', len(parsedTabs.keys())
+print 'Saving Tabs...',
+with open('./processed/tabs.json', 'wb') as outfile:
+    json.dump(parsedTabs, outfile)
+
+with open('./processed/tabs.pkl ', 'wb') as outfile:
+    pickle.dump(parsedTabs, outfile)
+print 'Saved.\n\n'
+
+
+
+# ********************
+# Load/Read Pickle Demo
+# ********************
+with open('./processed/tabs.pkl ', 'rb') as infile:
+    parsedTabs = pickle.load(infile)
+
+with open('./processed/lyrics.pkl ', 'rb') as infile:
+    parsedLyrics = pickle.load(infile)
+
+# What does the parsedTab data-structure look like?
+for key in parsedTabs:
+    # key is the URL, but for consistancy "url" is also a feature
+    tab = parsedTabs[key]
+    print 'Title:', tab['title']
+    print 'Artist:', tab['artist']
+    print 'Contributor:', tab['contributor']
+    print 'Provider:', tab['provider']
+    print 'URL:', tab['url']
+    print '# Chord Blocks:', len(tab['chords'])
+    print '# Lyric Blocks:', len(tab['lyrics'])
+    for i, chordBlock in enumerate(['chords']):
+        # To help make it easier to see the structure,
+        # I've used tab['chords'][i] consistently throughout the example
+        # but it could easily be replaced with chordBlock
+        if len(tab['chords']) > 0:
+            print '\tBlock #', i
+            print '\tNumber of Chord Lines:', len(tab['chords'][i]['lines'])
+            print '\tNumber of Lyric Lines:', len(tab['lyrics'][i]['lines'])
+            print '\tMeta-Data Block Role:', tab['chords'][i]['metaData']['role']
+            print '\tMeta-Data Block Lost Characters:', tab['chords'][i]['metaData']['lostCharacters']
+            for j, chordLine in enumerate(tab['chords'][i]['lines']):
+                print '\t  Line #', j, 'Chords:', tab['chords'][i]['lines'][j]
+                print '\t  Line #', j, 'Lyrics:', tab['lyrics'][i]['lines'][j]
+                print
+            print
+    print '\n\n'
+
+# What does the parsedLyric data-structure look like?
+for key in parsedLyrics:
+    lyricRecord = parsedLyrics[key]
+    print 'Title:', lyricRecord['title']
+    print 'Artist:', lyricRecord['artist']
+    print 'Provider:', lyricRecord['provider']
+    print 'URL:', lyricRecord['url']
+    for i, lyricBlock in enumerate(lyricRecord['lyrics']):
+        print '\tBlock #', i
+        for j, line in enumerate(lyricBlock['lines']):
+            print '\t  Line #', j, 'Lyrics:', line
+    print '\n\n'
+
+print "Total Loaded Tabs:", len(parsedTabs.keys())
+print "Total Loaded Lyrics:", len(parsedLyrics.keys())
