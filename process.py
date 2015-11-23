@@ -115,7 +115,7 @@ def parseTab(tab):
             chordBlock['lines'].append(chordLine) if len(chordLine) > 0 else None
 
             # If a lyric is not the first line of a block and has some alphabetic characters
-            # we are able to make this latter assumption because
+            # we are able to make this former assumption because
             # chords always follow lyrics, this may unduly delete
             # some lines of lyrics, but never lyric/chord pairs
             # len(re.sub(r'[^\w]', '', lyric, flags=re.U).strip()) >= 5 and
@@ -246,7 +246,6 @@ with open('./output/lyricsnet.csv', 'rb') as csvfile:
             'provider': data['provider'],
             'lyrics': allBlocks
         }
-        print parsedLyrics
 print 'Finished.'
 
 print 'Processing Metro Lyrics...',
